@@ -123,7 +123,6 @@ Texto de teste invisível
 // CONFIGURAÇÃO DOS LINKS DO STANDBY
 // ==========================================
 var STANDBY_VIDEO_URL = "https://pub-a384c7ff61e54479b2bc601c3930cded.r2.dev/wallpaper/standby_video.mp4";
-var STANDBY_AUDIO_URL = "https://pub-a384c7ff61e54479b2bc601c3930cded.r2.dev/wallpaper/standby_audio.mp3";
 // ==========================================
 
 var SERVER_URL = (window.location.origin && window.location.origin.startsWith("http"))
@@ -134,88 +133,63 @@ var wsProtocol = SERVER_URL.startsWith("https") ? "wss://" : "ws://";
 var WS_URL = wsProtocol + SERVER_URL.replace(/^https?:\/\//, '');
 
 var mediaVideo = document.getElementById("mediaVideo");
-var mediaAudio = document.getElementById("mediaAudio");
 var mediaImage = document.getElementById("mediaImage");
-var keyDebug = document.getElementById("keyDebug");
 
-var tipoAtual = "";
 var urlAtual = "";
-var ultimaURL = "";
 var hlsPlayer = null;
 var tempoInicialAjustado = false;
 var ultimoComandoIdProcessado = 0;
 var emModoStandbyAnterior = false;
 
-function atualizarStatus(){}
-
-function mostrarErro(msg){
-    var box = document.getElementById("errorBox");
-    if(box){
-        box.style.display = "flex";
-        var texto = document.getElementById("errorMessage");
-        if(texto) texto.innerHTML = msg;
-    }
-}
-
-function limparMidia(){
+function limparMidia() {
     tempoInicialAjustado = false;
-
     if (hlsPlayer) {
         try {
             hlsPlayer.destroy();
             hlsPlayer = null;
         } catch(e){}
     }
-
     try {
         mediaVideo.pause();
         mediaVideo.removeAttribute("src");
         mediaVideo.load();
     } catch(e){}
-
-    try {
-        mediaAudio.pause();
-        mediaAudio.removeAttribute("src");
-        mediaAudio.load();
-    } catch(e){}
-
     try {
         mediaImage.removeAttribute("src");
     } catch(e){}
 }
 
-function receberMidia(url, tempoInicial, isStandby){
-    if(!url) {
+function receberMidia(url, tempoInicial, isStandby) {
+    if (!url) {
         urlAtual = "";
-        ultimaURL = "";
         limparMidia();
-        esconderTodos();
+        mediaVideo.style.display = "none";
+        mediaImage.style.display = "none";
         return;
     }
 
-    if(url === urlAtual) return;
+    if (url === urlAtual && emModoStandbyAnterior === isStandby) return;
     urlAtual = url;
-    ultimaURL = url;
+    emModoStandbyAnterior = isStandby;
     limparMidia();
 
-    if (isStandby) {
-        tipoAtual = "standby";
-        mostrarVideo();
+    mediaImage.style.display = "none";
+    mediaVideo.style.display = "block";
 
-        mediaVideo.muted = true; 
+    if (isStandby) {
+        mediaVideo.muted = true; // Standby roda mudo por segurança
+        mediaVideo.loop = true;
         mediaVideo.src = STANDBY_VIDEO_URL;
         mediaVideo.load();
         mediaVideo.play().catch(function(){});
-
-        mediaAudio.src = STANDBY_AUDIO_URL;
-        mediaAudio.load();
-        mediaAudio.play().catch(function(){});
         return;
     }
 
+    // Mídia normal: Áudio habilitado obrigatoriamente
     mediaVideo.muted = false;
-    var urlLimpa = url.split('?')[0].toLowerCase();
+    mediaVideo.loop = false;
 
+    var urlLimpa = url.split('?')[0].toLowerCase();
     if (urlLimpa.endsWith('.m3u8')) {
         tentarHLS(url, tempoInicial);
     } else {
@@ -226,91 +200,47 @@ function receberMidia(url, tempoInicial, isStandby){
 function tentarHLS(url, tempoInicial) {
     if (Hls.isSupported()) {
         hlsPlayer = new Hls({
-            enableWorker: false, 
-            maxBufferLength: 10,
-            maxMaxBufferLength: 20,
-            lowLatencyMode: false
+            enableWorker: false,
+            lowLatencyMode: false,
+            maxBufferLength: 15,
+            maxMaxBufferLength: 30
         });
         hlsPlayer.loadSource(url);
         hlsPlayer.attachMedia(mediaVideo);
         hlsPlayer.on(Hls.Events.MANIFEST_PARSED, function() {
-            tipoAtual = "video";
-            mostrarVideo();
             iniciarVideo(tempoInicial);
         });
         hlsPlayer.on(Hls.Events.ERROR, function(event, data) {
             if (data.fatal) { tentarVideo(url, tempoInicial); }
         });
-    } else if (mediaVideo.canPlayType('application/vnd.apple.mpegurl')) {
+    } else {
         mediaVideo.src = url;
         tentarVideo(url, tempoInicial);
-    } else {
-        tentarVideo(url, tempoInicial);
     }
 }
 
-function tentarVideo(url, tempoInicial){
-    var confirmado = false;
+function tentarVideo(url, tempoInicial) {
     mediaVideo.src = url;
     mediaVideo.load();
-
-    function ativarVideo(){
-        if(confirmado) return;
-        confirmado = true;
-        tipoAtual = "video";
-        mostrarVideo();
-        iniciarVideo(tempoInicial);
-    }
-
-    mediaVideo.onloadeddata = ativarVideo;
-    mediaVideo.oncanplay = ativarVideo;
-    mediaVideo.onerror = function(){ if(!confirmado) tentarAudio(url); };
+    iniciarVideo(tempoInicial);
 }
 
-function tentarAudio(url){
-    var confirmado = false;
-    mediaAudio.src = url;
-    mediaAudio.load();
-
-    mediaAudio.oncanplay = function(){
-        if(confirmado) return;
-        confirmado = true; 
-        tipoAtual = "audio";
-        mediaAudio.play();
-    };
-
-    mediaAudio.onerror = function(){ if(!confirmado) tentarImagem(url); };
-}
-
-function tentarImagem(url){
-    var img = new Image();
-    img.onload = function(){
-        tipoAtual = "image"; 
-        mediaImage.src = url;
-        mostrarImage(); 
-    };
-    img.src = url;
-}
-
-function esconderTodos(){
-    mediaVideo.style.display = "none";
-    mediaAudio.style.display = "none";
-    mediaImage.style.display = "none";
-}
-
-function mostrarVideo(){ esconderTodos(); mediaVideo.style.display = "block"; }
-function mostrarImagem(){ esconderTodos(); mediaImage.style.display = "block"; }
-
-function iniciarVideo(tempoInicial){
-    if(tempoInicial && !tempoInicialAjustado){
+function iniciarVideo(tempoInicial) {
+    if (tempoInicial && !tempoInicialAjustado) {
         try { mediaVideo.currentTime = Number(tempoInicial); } catch(e){}
         tempoInicialAjustado = true;
     }
 
     var tentativa = mediaVideo.play();
-    if(tentativa !== undefined){
-        tentativa.then(function(){}).catch(function(){ 
-            setTimeout(function(){ iniciarVideo(tempoInicial); }, 500); 
+    if (tentativa !== undefined) {
+        tentativa.catch(function() {
+            // Tenta reproduzir forçando mudo temporário se o navegador bloquear o autoplay com áudio, depois reativa
+            mediaVideo.muted = true;
+            mediaVideo.play().then(function() {
+                setTimeout(function() {
+                    if (!emModoStandbyAnterior) mediaVideo.muted = false;
+                }, 500);
+            }).catch(function(){});
         });
     }
 }
@@ -322,47 +252,40 @@ function aplicarEstado(dados) {
     if (isStandby) {
         url = STANDBY_VIDEO_URL;
     } else {
-        if(dados.fila && dados.fila.length > 0 && dados.fila[dados.atual]){
+        if (dados.fila && dados.fila.length > 0 && dados.fila[dados.atual]) {
             url = dados.fila[dados.atual].url || dados.fila[dados.atual];
         }
-        if(!url && dados.video){ url = dados.video; }
+        if (!url && dados.video) { url = dados.video; }
     }
 
     if (url) {
-        if (url !== urlAtual || isStandby !== emModoStandbyAnterior) {
-            emModoStandbyAnterior = isStandby;
-            receberMidia(url, dados.currentTime || 0, isStandby);
-        }
+        receberMidia(url, dados.currentTime || 0, isStandby);
     } else {
         if (urlAtual !== "") {
             urlAtual = "";
-            ultimaURL = "";
-            emModoStandbyAnterior = false;
             limparMidia();
-            esconderTodos();
+            mediaVideo.style.display = "none";
         }
     }
 
-    if (mediaVideo) {
+    if (mediaVideo && !isStandby) {
         var isPlaying = (dados.playing !== undefined) ? dados.playing : dados.reproduzindo;
 
         if (isPlaying === false && !mediaVideo.paused) {
             mediaVideo.pause();
-            if(!mediaAudio.paused) mediaAudio.pause();
         } else if (isPlaying === true && mediaVideo.paused) {
             mediaVideo.play().catch(function(){});
-            if(isStandby && mediaAudio.paused) mediaAudio.play().catch(function(){});
         }
 
-        if (dados.volume !== undefined && !isStandby) { mediaVideo.volume = dados.volume / 100; }
-        if (dados.mudo !== undefined && !isStandby) { mediaVideo.muted = dados.mudo; }
+        if (dados.volume !== undefined) { mediaVideo.volume = dados.volume / 100; }
+        if (dados.mudo !== undefined) { mediaVideo.muted = dados.mudo; }
 
-        if (dados.comandoId && dados.comandoId !== ultimoComandoIdProcessado && !isStandby) {
+        if (dados.comandoId && dados.comandoId !== ultimoComandoIdProcessado) {
             ultimoComandoIdProcessado = dados.comandoId;
 
-            if (dados.ultimoComando === 'forward' || dados.ultimoComando === 'avancar_15' || dados.ultimoComando === '+15') {
+            if (dados.ultimoComando === 'forward' || dados.ultimoComando === '+15') {
                 mediaVideo.currentTime = Math.min(mediaVideo.duration || 0, mediaVideo.currentTime + 15);
-            } else if (dados.ultimoComando === 'rewind' || dados.ultimoComando === 'voltar_15' || dados.ultimoComando === '-15') {
+            } else if (dados.ultimoComando === 'rewind' || dados.ultimoComando === '-15') {
                 mediaVideo.currentTime = Math.max(0, mediaVideo.currentTime - 15);
             } else if (dados.currentTime !== undefined && Math.abs(mediaVideo.currentTime - dados.currentTime) > 2) {
                 mediaVideo.currentTime = dados.currentTime;
@@ -373,81 +296,47 @@ function aplicarEstado(dados) {
 
 function conectarWebSocket() {
     var ws = new WebSocket(WS_URL);
-
     ws.onmessage = function(event) {
         try {
             var dados = JSON.parse(event.data);
             aplicarEstado(dados);
         } catch(e){}
     };
-
     ws.onclose = function() {
         setTimeout(conectarWebSocket, 3000);
     };
 }
 conectarWebSocket();
 
-function verificarServidor(){
+function verificarServidor() {
     var xhr = new XMLHttpRequest();
     xhr.open("GET", SERVER_URL + "/status?t=" + Date.now(), true);
-
-    xhr.onreadystatechange = function(){
-        if(xhr.readyState === 4){
-            if(xhr.status === 200){
-                try{
+    xhr.onreadystatechange = function() {
+        if (xhr.readyState === 4) {
+            if (xhr.status === 200) {
+                try {
                     var dados = JSON.parse(xhr.responseText);
                     aplicarEstado(dados);
-                }catch(e){}
+                } catch(e){}
             }
-            setTimeout(verificarServidor, 3000);
+            setTimeout(verificarServidor, 4000); // Intervalo levemente maior para poupar recursos da TV
         }
     };
-    xhr.onerror = function() { 
-        setTimeout(verificarServidor, 3000); 
+    xhr.onerror = function() {
+        setTimeout(verificarServidor, 4000);
     };
     xhr.send();
 }
 verificarServidor();
 
-// Loop suave preventivo para eliminar o engasgo no fim do vídeo/áudio do standby
-mediaVideo.ontimeupdate = function() {
-    if (emModoStandbyAnterior && mediaVideo.duration && !isNaN(mediaVideo.duration)) {
-        // Se faltar menos de 0.3 segundos para acabar, ele joga pro início suavemente sem travar
-        if (mediaVideo.duration - mediaVideo.currentTime < 0.3) {
-            mediaVideo.currentTime = 0;
-            mediaVideo.play().catch(function(){});
-        }
+mediaVideo.onended = function() {
+    if (!emModoStandbyAnterior) {
+        var xhr = new XMLHttpRequest();
+        xhr.open("POST", SERVER_URL + "/controle", true);
+        xhr.setRequestHeader("Content-Type", "application/json");
+        xhr.send(JSON.stringify({ slink: "next" }));
     }
 };
-
-mediaAudio.ontimeupdate = function() {
-    if (emModoStandbyAnterior && mediaAudio.duration && !isNaN(mediaAudio.duration)) {
-        if (mediaAudio.duration - mediaAudio.currentTime < 0.3) {
-            mediaAudio.currentTime = 0;
-            mediaAudio.play().catch(function(){});
-        }
-    }
-};
-
-mediaVideo.onended = function(){ 
-    if(!emModoStandbyAnterior) {
-        enviarComando("next"); 
-    }
-};
-
-mediaAudio.onended = function(){
-    if (emModoStandbyAnterior) {
-        mediaAudio.currentTime = 0;
-        mediaAudio.play().catch(function(){});
-    }
-};
-
-function enviarComando(slink){
-    var xhr = new XMLHttpRequest();
-    xhr.open("POST", SERVER_URL + "/controle", true);
-    xhr.setRequestHeader("Content-Type", "application/json");
-    xhr.send(JSON.stringify({ slink: slink }));
-}
 </script>
 
 </body>
