@@ -44,7 +44,7 @@ function getCurrentPosition() {
 }
 
 // Disparador otimizado via WebSocket
-function broadcastState(acaoExtra = null) {
+function broadcastState(acaoExtra = null, tipoPersonalizado = null) {
   const currentPos = getCurrentPosition();
 
   if (masterState.playing && masterState.video) {
@@ -53,7 +53,7 @@ function broadcastState(acaoExtra = null) {
   }
 
   const payload = JSON.stringify({
-    tipo: acaoExtra ? "comando" : "sync-transmission",
+    tipo: tipoPersonalizado || (acaoExtra ? "comando" : "sync-transmission"),
     slink: acaoExtra,
     ...masterState,
     currentTime: masterState.currentTime,
@@ -123,11 +123,9 @@ app.post('/enviar', (req, res) => {
       masterState.comandoId = masterState.updatedAt;
       broadcastState("play");
     } else {
-      // Se JÁ ESTÁ TOCANDO algo, apenas atualiza a fila de forma silenciosa na TV
-      masterState.updatedAt = Date.now();
+      // CORREÇÃO: Apenas atualiza a fila de forma totalmente silenciosa sem mexer no comandoId do player atual
       masterState.ultimoComando = "fila_adicionada";
-      masterState.comandoId = masterState.updatedAt;
-      broadcastState(); 
+      broadcastState(null, "fila_atualizada"); 
     }
   }
   res.json({ success: true, state: masterState });
@@ -185,7 +183,6 @@ app.post('/controle', (req, res) => {
         verificarStandby();
         break;
 
-      // Avançar 15 segundos
       case 'forward':
       case 'avancar_15':
       case 'forward_15':
@@ -195,7 +192,6 @@ app.post('/controle', (req, res) => {
         }
         break;
 
-      // Voltar 15 segundos
       case 'rewind':
       case 'voltar_15':
       case 'rewind_15':
@@ -221,7 +217,6 @@ app.post('/controle', (req, res) => {
         masterState.seek = 0;
         break;
 
-      // Próximo na Fila
       case 'next':
       case 'proximo_video':
         if (Array.isArray(masterState.fila) && masterState.fila.length > 0) {
@@ -238,7 +233,6 @@ app.post('/controle', (req, res) => {
         }
         break;
 
-      // Anterior na Fila
       case 'prev':
       case 'previous':
         if (Array.isArray(masterState.fila) && masterState.fila.length > 0) {
