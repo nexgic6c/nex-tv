@@ -15,7 +15,7 @@ const server = http.createServer(app);
 const wss = new WebSocket.Server({ server });
 
 // Defina aqui a URL do vídeo/música padrão do modo Standby
-const STANDBY_URL = "URL_DO_VIDEO_OU_MUSICA_STANDBY_AQUI"; 
+const STANDBY_URL = "https://pub-a384c7ff61e54479b2bc601c3930cded.r2.dev/wallpaper/standby_video.mp4"; 
 
 // Estado Mestre Central com Fila e Suporte a Standby
 let masterState = {
@@ -105,7 +105,7 @@ app.get('/status', (req, res) => {
   });
 });
 
-// Envio de nova mídia (Adiciona na fila SEM reiniciar o vídeo atual caso já esteja tocando)
+// Envio de nova mídia (Adiciona na fila em sigilo SEM reiniciar o vídeo atual)
 app.post('/enviar', (req, res) => {
   const url = req.body.url;
   const titulo = req.body.titulo || `Mídia ${masterState.fila.length + 1}`;
@@ -114,16 +114,21 @@ app.post('/enviar', (req, res) => {
     const itemMidia = { id: Date.now().toString(), url: url, titulo: titulo };
     masterState.fila.push(itemMidia);
 
-    // Se estava em Standby ou sem vídeo ativo, começa a reproduzir o item novo imediatamente
+    // Se estava em Standby ou sem nenhum vídeo ativo, assume e começa a tocar imediatamente
     if (masterState.modoStandby || !masterState.video || !masterState.ativo) {
       masterState.atual = masterState.fila.length - 1;
       verificarStandby();
+      masterState.updatedAt = Date.now();
+      masterState.ultimoComando = "enviar";
+      masterState.comandoId = masterState.updatedAt;
+      broadcastState("play");
+    } else {
+      // Se JÁ ESTÁ TOCANDO algo, apenas atualiza a fila de forma silenciosa na TV
+      masterState.updatedAt = Date.now();
+      masterState.ultimoComando = "fila_adicionada";
+      masterState.comandoId = masterState.updatedAt;
+      broadcastState(); 
     }
-
-    masterState.updatedAt = Date.now();
-    masterState.ultimoComando = "enviar";
-    masterState.comandoId = masterState.updatedAt;
-    broadcastState("play");
   }
   res.json({ success: true, state: masterState });
 });
@@ -165,7 +170,7 @@ app.post('/controle', (req, res) => {
       case 'stop':
         masterState.fila = [];
         masterState.atual = 0;
-        verificarStandby(); // Volta para o standby ao parar tudo
+        verificarStandby();
         break;
 
       case 'clear':
@@ -177,7 +182,7 @@ app.post('/controle', (req, res) => {
         masterState.currentTime = 0;
         masterState.fila = [];
         masterState.atual = 0;
-        verificarStandby(); // Volta para o standby ao limpar
+        verificarStandby();
         break;
 
       // Avançar 15 segundos
@@ -225,7 +230,6 @@ app.post('/controle', (req, res) => {
             verificarStandby();
             masterState.currentTime = 0;
           } else {
-            // Fim da fila: ativa o modo Standby
             masterState.atual = masterState.fila.length;
             verificarStandby();
           }
@@ -264,7 +268,6 @@ app.post('/controle', (req, res) => {
 
 // WebSocket para o Player / Clientes
 wss.on('connection', (ws) => {
-  // Se conectar e não houver nada na fila, garante que o standby inicie ativado
   if (masterState.fila.length === 0 && !masterState.video) {
     verificarStandby();
   }
